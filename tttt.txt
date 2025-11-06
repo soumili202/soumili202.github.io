@@ -1,0 +1,18 @@
+Good afternoon everyone,
+I’m Soumili Mukherjee, a B.Tech graduate from IIT Kharagpur, and I’m currently part of the Orchestra AI application team, where we work on generative AI orchestration and automation within the bank.
+
+The GenAI training over the past few weeks has been extremely enriching and well-structured. It began with a quick foundation in Python, data preprocessing, and neural networks, which acted as a solid revision, and then moved toward more advanced and applied topics like transformers, NLP, LLMs, RAG pipelines, LangChain frameworks, prompt engineering, and production ML pipelines.
+
+The hands-on sessions were particularly valuable — from building text classifiers and enterprise chatbots to understanding LLM fine-tuning, monitoring, and A/B testing. These not only deepened our technical understanding but also directly helped us grasp the Orchestra codebase better and connect the training concepts to real-world AI workflows within the bank.
+
+What I really appreciated were the doubt sessions and exploratory tasks beyond standard assignments. We had opportunities to explore tools, present our findings, and get feedback in an open environment. Even when certain resources like API keys weren’t accessible within the bank network, we could safely explore outside and clarify queries later — which made the learning process flexible and practical.
+
+The trainers were highly knowledgeable, especially with topic-wise specialization. Each concept — whether in LLM deployment, RAG, or AI governance — was explained with great clarity.
+The coordination was also seamless, with daily quizzes, timely updates, and very quick resolution of any JupyterLab or technical issues.
+
+If I had to suggest one thing, a dedicated lab setup within the internal environment would make experimentation smoother, but even without that, the support from trainers and coordinators was outstanding.
+
+Overall, this training has been a transformative experience, bridging theory with enterprise-level implementation and preparing us to contribute meaningfully to AI initiatives like Orchestra.
+I’m truly grateful to the leadership, the training team, and the coordinators for designing such a thoughtful and technically relevant program.
+
+Thank you.
