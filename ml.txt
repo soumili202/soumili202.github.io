@@ -1,0 +1,645 @@
+Nice, locked in 😎
+We’ll make Copilot return:
+
+{
+  "thinking": { ... per-agent {...} ... },
+  "content": { ... final decision JSON ... }
+}
+
+with reasoning inside each agent.
+
+Below are:
+
+1. All node prompts (store as .txt files in prompts/)
+
+
+2. The big aurix_engine.py that:
+
+Reads JSON from data/
+
+Reads these prompt .txts
+
+Builds one final mega-prompt
+
+Saves it to final_prompt.txt
+
+
+
+
+No conversation memory, just one-shot.
+
+
+---
+
+📁 Folder layout (for context)
+
+ml_backend/
+  aurix_engine.py
+  prompts/
+    rewriter.txt
+    planner.txt
+    retrieval.txt
+    reconciliation.txt
+    compliance.txt
+    explainer.txt
+  data/
+    invoices.json
+    ledgers.json
+    policies.json
+    integrator_meta.json
+
+
+---
+
+🧾 1) Node prompt files (prompts/*.txt)
+
+📄 prompts/rewriter.txt
+
+# QUERY REWRITER AGENT
+
+Role:
+- Normalize and restate the user query.
+- Identify the high-level intent.
+- Extract structured entities such as:
+  - invoice_id
+  - ledger_id
+  - vendor
+  - amount_range
+  - date_range
+
+Input this agent SHOULD RECEIVE (thinking.rewriter.input):
+- user_query: the raw natural language question.
+- invoices_json: list of all invoice objects.
+- ledgers_json: list of all ledger objects.
+- policies_json: list of all policy objects.
+
+What this agent SHOULD DO (thinking.rewriter.reasoning):
+- Read the user_query.
+- Look for explicit invoice IDs (e.g., "INV-1032") and ledger IDs.
+- Try to infer vendor names from the query (e.g., "Apex").
+- Classify intent into one of:
+  - "audit_invoice_ledger"
+  - "policy_explanation"
+  - "anomaly_investigation"
+  - "generic_query".
+- Produce a well-structured clarified_query summarizing what the user wants.
+
+What this agent SHOULD OUTPUT (thinking.rewriter.output):
+- clarified_query: normalized form of the question.
+- intent: one of the above intent labels.
+- entities: an object like:
+  {
+    "invoice_id": "string or null",
+    "ledger_id": "string or null",
+    "vendor": "string or null",
+    "date_range": "string or null",
+    "amount_range": "string or null"
+  }
+
+
+---
+
+📄 prompts/planner.txt
+
+# QUERY PLANNER AGENT
+
+Role:
+- Decide which processing steps to run, and in which order, based on intent and entities.
+
+Input this agent SHOULD RECEIVE (thinking.planner.input):
+- clarified_query and intent from the rewriter.
+- extracted entities (invoice_id, ledger_id, vendor, etc.).
+
+What this agent SHOULD DO (thinking.planner.reasoning):
+- If intent = "audit_invoice_ledger":
+  - Use steps: ["retrieval", "reconciliation", "compliance", "explainer"].
+- If intent = "policy_explanation":
+  - Use steps: ["retrieval", "compliance", "explainer"].
+- If intent = "anomaly_investigation":
+  - Use steps: ["retrieval", "reconciliation", "compliance", "explainer"].
+- Otherwise use a safe default: ["retrieval", "explainer"].
+
+What this agent SHOULD OUTPUT (thinking.planner.output):
+- steps: ordered list of step types, e.g.:
+  ["retrieval", "reconciliation", "compliance", "explainer"].
+
+
+---
+
+📄 prompts/retrieval.txt
+
+# RETRIEVAL AGENT
+
+Role:
+- From all invoices and ledgers, select the ones most relevant to the clarified_query and extracted entities.
+
+Input this agent SHOULD RECEIVE (thinking.retrieval.input):
+- clarified_query.
+- entities (invoice_id, vendor, etc.).
+- invoices_json (full list of invoice records).
+- ledgers_json (full list of ledger records).
+- policies_json (for choosing which policies are relevant).
+
+Similarity model (as explanation only):
+- Let Tokens(x) be important words in text x.
+- Lexical Jaccard similarity:
+  S_lex(x, q) = |Tokens(x) ∩ Tokens(q)| / |Tokens(x) ∪ Tokens(q)|.
+- Semantic similarity S_sem(x, q) ∈ [0,1] (based on meaning).
+- Overall similarity:
+  S_total(x, q) = α * S_lex(x, q) + β * S_sem(x, q),
+  where α + β = 1 (for example α=0.4, β=0.6).
+
+What this agent SHOULD DO (thinking.retrieval.reasoning):
+- If entities.invoice_id is present:
+  - Prefer that invoice by ID.
+- Otherwise:
+  - Use similarity between the clarified_query and invoice descriptions/vendors.
+- Do the same for ledgers.
+- Compute conceptual S_total scores for ranking (you do not need exact numeric values, but keep them consistent and plausible).
+- Choose a small set of top invoices and top ledgers (e.g., 1–3 of each).
+- Choose relevant policies based on:
+  - keywords (cloud, hardware, amount, etc.)
+  - amounts and vendors in the selected records.
+
+What this agent SHOULD OUTPUT (thinking.retrieval.output):
+- selected_invoices: array of objects like:
+  { "id": "...", "score": float, "reason": "short explanation" }.
+- selected_ledgers: array of objects like:
+  { "id": "...", "score": float, "reason": "short explanation" }.
+- selected_policies: array of objects like:
+  { "id": "POL-01", "relevance_reason": "why this policy matters here" }.
+
+
+---
+
+📄 prompts/reconciliation.txt
+
+# RECONCILIATION AGENT
+
+Role:
+- For each selected invoice, find the best ledger match and decide whether it matches or is mismatched.
+
+Input this agent SHOULD RECEIVE (thinking.reconciliation.input):
+- selected_invoices from retrieval.
+- selected_ledgers from retrieval.
+- invoices_json (full details, including amounts, vendors, descriptions).
+- ledgers_json (full details).
+
+Formula:
+- amount_diff_percent = |A_invoice - A_ledger| / A_invoice * 100
+
+Decision logic (for explanation):
+- If vendor name is compatible and amount_diff_percent ≤ 3:
+  - status = "match"
+- If vendor name is compatible and amount_diff_percent > 3:
+  - status = "mismatch_amount"
+- If vendor name clearly refers to a different entity:
+  - status = "mismatch_vendor"
+- If no reasonable ledger is found:
+  - status = "no_match"
+
+What this agent SHOULD DO (thinking.reconciliation.reasoning):
+- For each selected invoice:
+  - Identify the most plausible ledger candidate.
+  - Compare vendor strings (e.g. "Apex Technologies Pvt Ltd" vs "Apex Tech Private Limited").
+  - Estimate vendor similarity qualitatively (same group / different vendor).
+  - Compute and describe amount_diff_percent.
+  - Assign an appropriate status.
+- Identify unmatched invoices and unmatched ledgers.
+
+What this agent SHOULD OUTPUT (thinking.reconciliation.output):
+- reconciliations: array of objects like:
+  {
+    "invoice_id": "INV-1032",
+    "ledger_id": "LEDG-231",
+    "status": "match | mismatch_amount | mismatch_vendor | no_match",
+    "amount_diff_percent": float,
+    "vendor_comment": "short note on vendor name similarity or difference",
+    "notes": "short explanation of why this status was chosen"
+  }
+- unmatched_invoices: list of invoice IDs with no reasonable ledger.
+- unmatched_ledgers: list of ledger IDs not used.
+
+
+---
+
+📄 prompts/compliance.txt
+
+# COMPLIANCE AGENT
+
+Role:
+- Check the reconciled invoice-ledger pairs against all relevant policies and identify violations and risk level.
+
+Input this agent SHOULD RECEIVE (thinking.compliance.input):
+- reconciliations from the reconciliation agent.
+- selected_policies from the retrieval agent.
+- invoices_json (to know attributes like has_approval_note, amount, vendor, etc.).
+- ledgers_json.
+
+Example policies in this setup:
+- POL-01: Cloud service renewals above 2000 USD must include a documented IT approval note.
+- POL-02: Hardware procurement above 4000 USD must be split into multiple POs.
+- POL-03: Vendor payments must match ledger amounts within ±3%.
+
+What this agent SHOULD DO (thinking.compliance.reasoning):
+- For each reconciliation pair:
+  - Check if invoice.amount and description suggest cloud renewal, hardware, or generic finance.
+  - Apply each relevant policy:
+    - Check threshold conditions (e.g. >2000, >4000).
+    - Check fields such as has_approval_note.
+    - Check amount differences vs ±3% tolerance.
+- Collect all violations.
+- Determine an overall risk_level:
+  - "HIGH" if any HIGH severity policy is violated.
+  - "MEDIUM" if only medium severity policies are violated.
+  - "LOW" if there are no violations or only minor findings.
+
+What this agent SHOULD OUTPUT (thinking.compliance.output):
+- policy_evaluations: array of objects like:
+  {
+    "policy_id": "POL-01",
+    "applies_to": ["INV-1032"],
+    "is_violated": true or false,
+    "violation_reason": "short text",
+    "severity": "LOW | MEDIUM | HIGH"
+  }
+- overall_risk_level: "LOW" | "MEDIUM" | "HIGH".
+- summary: 1–3 lines summarizing the compliance outcome.
+
+
+---
+
+📄 prompts/explainer.txt
+
+# EXPLAINER AGENT
+
+Role:
+- Combine all previous agent outputs into a final, business-friendly decision and recommendation.
+
+Input this agent SHOULD RECEIVE (thinking.explainer.input):
+- clarified_query and entities from rewriter.
+- steps from planner.
+- selected records from retrieval.
+- reconciliations from reconciliation.
+- policy_evaluations and risk_level from compliance.
+
+What this agent SHOULD DO (thinking.explainer.reasoning):
+- Summarize which invoices and ledgers were considered.
+- Explain key reconciliation results (where things matched or differed).
+- Explain which policies were violated (if any) and why.
+- Derive a final decision label and human-friendly reason.
+- Suggest what can be done next to fix or mitigate issues.
+
+What this agent SHOULD OUTPUT (thinking.explainer.output):
+- decision: a short label (e.g. "high_risk", "medium_risk", "low_risk", "compliant").
+- reason: 1–3 sentences summarizing why this decision was made.
+- records_considered: list of invoice and ledger IDs that were central to the analysis.
+- violations: list of policy violations in the shape:
+  {
+    "policy_id": "string",
+    "description": "short description of the rule",
+    "severity": "LOW | MEDIUM | HIGH"
+  }
+- risk_level: "LOW" | "MEDIUM" | "HIGH".
+- what_can_be_done: a short recommendation about remediation or next steps.
+
+
+---
+
+🧠 2) Big engine file: aurix_engine.py
+
+This:
+
+Reads:
+
+data/invoices.json
+
+data/ledgers.json
+
+data/policies.json
+
+data/integrator_meta.json (for user_query)
+
+
+Reads the 6 prompt .txt files
+
+Builds a final prompt that forces Copilot to return JSON:
+
+
+{
+  "thinking": { ... },
+  "content": { ... }
+}
+
+📄 aurix_engine.py
+
+import json
+import os
+
+# ---------------------- Helpers ---------------------- #
+
+def load_prompt(name: str) -> str:
+    """Load a prompt fragment from prompts/<name>.txt"""
+    path = os.path.join("prompts", f"{name}.txt")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def load_json(path: str):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+# ---------------------- Core builder ---------------------- #
+
+def build_final_prompt(user_query: str) -> str:
+    # Load integrator-generated data
+    invoices = load_json(os.path.join("data", "invoices.json"))
+    ledgers  = load_json(os.path.join("data", "ledgers.json"))
+    policies = load_json(os.path.join("data", "policies.json"))
+
+    # Load agent prompt fragments
+    rewriter_prompt       = load_prompt("rewriter")
+    planner_prompt        = load_prompt("planner")
+    retrieval_prompt      = load_prompt("retrieval")
+    reconciliation_prompt = load_prompt("reconciliation")
+    compliance_prompt     = load_prompt("compliance")
+    explainer_prompt      = load_prompt("explainer")
+
+    # Example structure for thinking JSON
+    thinking_structure_example = {
+        "rewriter": {
+            "input":   "Describe what you treated as input for the rewriter.",
+            "reasoning": "Explain step-by-step how you clarified the query and extracted entities.",
+            "output":  {
+                "clarified_query": "...",
+                "intent": "audit_invoice_ledger | policy_explanation | anomaly_investigation | generic_query",
+                "entities": {
+                    "invoice_id": "string or null",
+                    "ledger_id": "string or null",
+                    "vendor": "string or null",
+                    "date_range": "string or null",
+                    "amount_range": "string or null"
+                }
+            }
+        },
+        "planner": {
+            "input":   "Describe the rewriter output you used.",
+            "reasoning": "Explain how you chose the steps based on intent and entities.",
+            "output":  {
+                "steps": ["retrieval", "reconciliation", "compliance", "explainer"]
+            }
+        },
+        "retrieval": {
+            "input":   "Describe which query/entities and records you considered.",
+            "reasoning": "Explain similarity logic and why certain records were chosen.",
+            "output":  {
+                "selected_invoices": [
+                    {"id": "INV-1032", "score": 0.93, "reason": "why this invoice"}
+                ],
+                "selected_ledgers": [
+                    {"id": "LEDG-231", "score": 0.90, "reason": "why this ledger"}
+                ],
+                "selected_policies": [
+                    {"id": "POL-01", "relevance_reason": "why this policy"}
+                ]
+            }
+        },
+        "reconciliation": {
+            "input":   "Describe which selected invoices and ledgers you used.",
+            "reasoning": "Explain vendor similarity and amount_diff_percent decisions.",
+            "output":  {
+                "reconciliations": [
+                    {
+                        "invoice_id": "INV-1032",
+                        "ledger_id": "LEDG-231",
+                        "status": "match | mismatch_amount | mismatch_vendor | no_match",
+                        "amount_diff_percent": 0.6,
+                        "vendor_comment": "short note",
+                        "notes": "short explanation"
+                    }
+                ],
+                "unmatched_invoices": [],
+                "unmatched_ledgers": []
+            }
+        },
+        "compliance": {
+            "input":   "Describe reconciliations and selected policies used.",
+            "reasoning": "Explain which policies were checked and why they were or were not violated.",
+            "output":  {
+                "policy_evaluations": [
+                    {
+                        "policy_id": "POL-01",
+                        "applies_to": ["INV-1032"],
+                        "is_violated": True,
+                        "violation_reason": "short text",
+                        "severity": "HIGH"
+                    }
+                ],
+                "overall_risk_level": "LOW | MEDIUM | HIGH",
+                "summary": "1-3 line compliance summary"
+            }
+        },
+        "explainer": {
+            "input":   "Describe all previous outputs you considered.",
+            "reasoning": "Explain how you derived the final decision and recommendation.",
+            "output":  {
+                "decision": "high_risk | medium_risk | low_risk | compliant",
+                "reason": "1-3 sentences explaining the decision",
+                "records_considered": ["INV-1032", "LEDG-231"],
+                "violations": [
+                    {
+                        "policy_id": "POL-01",
+                        "description": "short description",
+                        "severity": "HIGH"
+                    }
+                ],
+                "risk_level": "LOW | MEDIUM | HIGH",
+                "what_can_be_done": "short recommendation"
+            }
+        }
+    }
+
+    # Final content schema (what the integrator will parse)
+    content_schema = {
+        "decision": "",
+        "reason": "",
+        "records_considered": [],
+        "violations": [
+            {
+                "policy_id": "",
+                "description": "",
+                "severity": ""
+            }
+        ],
+        "risk_level": "",
+        "what_can_be_done": ""
+    }
+
+    # Build final prompt text
+    final_prompt = f"""
+AURIX-X MULTI-AGENT AUDIT ENGINE
+
+You are an AI audit engine that must simulate multiple internal agents on the given JSON data.
+
+Your output MUST be a single valid JSON object with TWO top-level fields:
+- "thinking": detailed agent-by-agent trace
+- "content": final decision JSON
+
+NO natural-language text is allowed outside this JSON.
+DO NOT wrap the JSON in backticks or any other formatting.
+
+---------------------------
+AGENT DESCRIPTIONS
+---------------------------
+
+[Query Rewriter]
+{rewriter_prompt}
+
+[Query Planner]
+{planner_prompt}
+
+[Retrieval Agent]
+{retrieval_prompt}
+
+[Reconciliation Agent]
+{reconciliation_prompt}
+
+[Compliance Agent]
+{compliance_prompt}
+
+[Explainer Agent]
+{explainer_prompt}
+
+---------------------------
+OUTPUT FORMAT (MANDATORY)
+---------------------------
+
+You MUST output a single JSON object with this structure:
+
+thinking:
+- For each of the agents: "rewriter", "planner", "retrieval", "reconciliation", "compliance", "explainer"
+  you MUST fill an object with:
+  - "input": what you considered as input (in your own words and/or structured form)
+  - "reasoning": short step-by-step explanation of how that agent worked
+  - "output": the structured result for that agent as described in the prompts above.
+
+content:
+- Final structured audit result, matching this schema exactly:
+{json.dumps(content_schema, indent=2)}
+
+Here is an EXAMPLE SHAPE of the "thinking" object (values are placeholders, you must replace them with real ones):
+
+{json.dumps(thinking_structure_example, indent=2)}
+
+---------------------------
+INPUT DATA
+---------------------------
+
+User Query:
+{json.dumps(user_query)}
+
+Invoices JSON:
+{json.dumps(invoices, indent=2)}
+
+Ledgers JSON:
+{json.dumps(ledgers, indent=2)}
+
+Policies JSON:
+{json.dumps(policies, indent=2)}
+
+---------------------------
+TASK
+---------------------------
+
+1. Internally simulate the agents in the following order (unless planner decides otherwise):
+   rewriter → planner → retrieval → reconciliation → compliance → explainer.
+2. For each agent, construct the corresponding entry under "thinking".
+3. Based on all agents' outputs, construct "content" according to the schema.
+4. Return ONLY the final JSON with "thinking" and "content".
+"""
+
+    return final_prompt
+
+# ---------------------- File writer ---------------------- #
+
+def write_final_prompt(prompt: str, out_path: str = "final_prompt.txt"):
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(prompt)
+    print(f"{out_path} generated successfully.")
+
+# ---------------------- Main ---------------------- #
+
+if __name__ == "__main__":
+    # integrator_meta.json is assumed to be created by your integrator backend.
+    # Example:
+    # {
+    #   "user_query": "Check if Apex cloud invoice is compliant"
+    # }
+    meta_path = os.path.join("data", "integrator_meta.json")
+    meta = load_json(meta_path)
+    user_query = meta.get("user_query", "")
+
+    prompt = build_final_prompt(user_query)
+    write_final_prompt(prompt)
+
+
+---
+
+🧪 How you’ll use this
+
+1. Integrator backend writes data/integrator_meta.json with:
+
+
+
+{
+  "user_query": "Check if Apex invoice INV-1032 is compliant with policies"
+}
+
+2. You run:
+
+
+
+cd ml_backend
+python aurix_engine.py
+
+3. It generates final_prompt.txt.
+
+
+4. You paste final_prompt.txt into Copilot.
+
+
+5. Copilot returns something like:
+
+
+
+{
+  "thinking": {
+    "rewriter": { "input": ..., "reasoning": "...", "output": {...} },
+    "planner":  { "input": ..., "reasoning": "...", "output": {...} },
+    ...
+  },
+  "content": {
+    "decision": "high_risk",
+    "reason": " ... ",
+    "records_considered": [...],
+    "violations": [...],
+    "risk_level": "HIGH",
+    "what_can_be_done": "..."
+  }
+}
+
+6. Your integrator API parses this JSON:
+
+uses thinking for debug/trace UI
+
+uses content for final user answer.
+
+
+
+
+If you want, next step I can help you design the integrator API or frontend buttons that:
+
+Run aurix_engine.py
+
+Accept Copilot JSON
+
+Show both trace + final answer.
