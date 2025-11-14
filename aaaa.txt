@@ -1,0 +1,524 @@
+Perfect — let’s update the integrator exactly the way you want:
+
+
+---
+
+✅ UPDATES YOU REQUESTED
+
+1️⃣ The backend must run on port 8000 using uvicorn
+
+Your uvicorn command will be:
+
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+OR you can add a if __name__ == "__main__": block so running:
+
+python main.py
+
+automatically launches uvicorn on 8000.
+
+
+---
+
+2️⃣ The “reasoning” API should read reasoning from content, not thinking
+
+You want:
+
+/get_real_answer → show human-readable final answer
+
+/get_thinking → show per-agent thinking
+
+/get_reasoning → not from thinking, but from content.reason
+
+
+So reasoning = summary reason inside the content section.
+
+This is clear.
+
+
+---
+
+🔥 Updated main.py (WITH PORT 8000 + reasoning from content)
+
+from fastapi import FastAPI, UploadFile, File, Form
+import json
+import os
+import uvicorn
+
+from utils.csv_parser import parse_invoice_csv, parse_ledger_csv
+from utils.json_loader import load_json, write_json
+from utils.answer_formatter import (
+    format_final_answer,
+    format_thinking,
+    format_reasoning_from_content
+)
+
+app = FastAPI(title="AURIX Integrator Backend")
+
+DATA_DIR = "data"
+INVOICE_PATH = os.path.join(DATA_DIR, "invoices.json")
+LEDGER_PATH = os.path.join(DATA_DIR, "ledgers.json")
+META_PATH = os.path.join(DATA_DIR, "integrator_meta.json")
+COPILOT_OUTPUT_PATH = os.path.join(DATA_DIR, "copilot_output.json")
+
+
+# -------------------------------
+# 1) Upload Invoice CSV
+# -------------------------------
+@app.post("/upload_invoice")
+async def upload_invoice(file: UploadFile = File(...)):
+    content = await file.read()
+    invoices = parse_invoice_csv(content.decode("utf-8"))
+    write_json(INVOICE_PATH, invoices)
+    return {"status": "success", "message": "Invoices uploaded."}
+
+
+# -------------------------------
+# 2) Upload Ledger CSV
+# -------------------------------
+@app.post("/upload_ledger")
+async def upload_ledger(file: UploadFile = File(...)):
+    content = await file.read()
+    ledgers = parse_ledger_csv(content.decode("utf-8"))
+    write_json(LEDGER_PATH, ledgers)
+    return {"status": "success", "message": "Ledgers uploaded."}
+
+
+# -------------------------------
+# 3) Store User Query
+# -------------------------------
+@app.post("/set_query")
+async def set_query(user_query: str = Form(...)):
+    meta = {"user_query": user_query}
+    write_json(META_PATH, meta)
+    return {"status": "success", "message": "Query saved."}
+
+
+# -------------------------------
+# 4) Return Final Business Answer (from content)
+# -------------------------------
+@app.get("/get_real_answer")
+async def get_real_answer():
+    data = load_json(COPILOT_OUTPUT_PATH)
+
+    if "content" not in data:
+        return {"error": "content not found in copilot_output.json"}
+
+    result = format_final_answer(data["content"])
+    return {"answer": result}
+
+
+# -------------------------------
+# 5) Return THINKING (agent-by-agent)
+# -------------------------------
+@app.get("/get_thinking")
+async def get_thinking():
+    data = load_json(COPILOT_OUTPUT_PATH)
+
+    if "thinking" not in data:
+        return {"error": "thinking not found in copilot_output.json"}
+
+    return {"thinking": format_thinking(data["thinking"])}
+
+
+# -------------------------------
+# 6) Return REASONING (from content)
+# -------------------------------
+@app.get("/get_reasoning")
+async def get_reasoning():
+    data = load_json(COPILOT_OUTPUT_PATH)
+
+    if "content" not in data:
+        return {"error": "content not found in copilot_output.json"}
+
+    return {"reasoning": format_reasoning_from_content(data["content"])}
+
+
+# -------------------------------
+# 7) Run the server on port 8000
+# -------------------------------
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+---
+
+🧾 Updated utils/answer_formatter.py
+
+Add this new function for reasoning based on content:
+
+def format_reasoning_from_content(content: dict) -> str:
+    """
+    Reasoning comes from the 'reason' field inside the content block.
+    """
+    return content.get("reason", "No reasoning available.")
+
+We KEEP:
+
+format_final_answer()
+
+format_thinking()
+
+
+Only reasoning now points to content.reason.
+
+
+---
+
+🎯 Summary of What Each API Returns
+
+API	Reads From	Returns
+
+/upload_invoice	CSV file	Saves invoices.json
+/upload_ledger	CSV file	Saves ledgers.json
+/set_query	Form input	Saves integrator_meta.json
+/get_real_answer	content	Decision + reason + risk + suggestions
+/get_thinking	thinking	Agent-by-agent details
+/get_reasoning	content.reason	The final business reasoning
+
+
+
+---
+
+🧪 Run Command
+
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+OR simply:
+
+python main.py
+
+(because the file now auto-runs uvicorn)
+
+
+---
+
+If you want next:
+
+✔ API documentation (Swagger)
+
+✔ Sample frontend (HTML/React)
+
+✔ A test sequence with sample CSVs
+
+✔ Postman collection
+
+✔ Architecture diagram
+
+Just tell me.
+
+
+
+
+
+
+
+
+
+
+
+
+Perfect.
+We will now build the Integrator Backend that sits between:
+
+UI
+
+AURIX Engine
+
+Copilot output
+
+
+This integrator:
+
+✔ Uploads invoice CSV → writes invoices.json
+
+✔ Uploads ledger CSV → writes ledgers.json
+
+✔ Accepts user query → writes integrator_meta.json
+
+✔ Has API to return final decision (“real answers”)
+
+✔ Has API to return agent thinking
+
+✔ Has API to return agent reasoning
+
+✔ All data is read from the JSON Copilot produced
+
+We will use FastAPI (clean, simple, easy for judges to understand).
+
+
+---
+
+📁 Integrator Folder Structure
+
+integrator_backend/
+  main.py
+  utils/
+      csv_parser.py
+      json_loader.py
+      answer_formatter.py
+  data/
+      invoices.json
+      ledgers.json
+      integrator_meta.json
+      policies.json          <-- static (copied from ML backend)
+      copilot_output.json    <-- pasted output from Copilot
+
+
+---
+
+🧾 File 1: main.py
+
+from fastapi import FastAPI, UploadFile, File, Form
+import json
+import os
+from utils.csv_parser import parse_invoice_csv, parse_ledger_csv
+from utils.json_loader import load_json, write_json
+from utils.answer_formatter import format_final_answer, format_thinking, format_reasoning
+
+app = FastAPI(title="AURIX Integrator Backend")
+
+DATA_DIR = "data"
+INVOICE_PATH = os.path.join(DATA_DIR, "invoices.json")
+LEDGER_PATH = os.path.join(DATA_DIR, "ledgers.json")
+META_PATH = os.path.join(DATA_DIR, "integrator_meta.json")
+COPILOT_OUTPUT_PATH = os.path.join(DATA_DIR, "copilot_output.json")
+
+
+# -------------------------------
+# 1) Upload Invoice CSV
+# -------------------------------
+@app.post("/upload_invoice")
+async def upload_invoice(file: UploadFile = File(...)):
+    content = await file.read()
+    invoices = parse_invoice_csv(content.decode("utf-8"))
+    write_json(INVOICE_PATH, invoices)
+    return {"status": "success", "message": "Invoices uploaded and stored."}
+
+
+# -------------------------------
+# 2) Upload Ledger CSV
+# -------------------------------
+@app.post("/upload_ledger")
+async def upload_ledger(file: UploadFile = File(...)):
+    content = await file.read()
+    ledgers = parse_ledger_csv(content.decode("utf-8"))
+    write_json(LEDGER_PATH, ledgers)
+    return {"status": "success", "message": "Ledgers uploaded and stored."}
+
+
+# -------------------------------
+# 3) Set User Query
+# -------------------------------
+@app.post("/set_query")
+async def set_query(user_query: str = Form(...)):
+    meta = {"user_query": user_query}
+    write_json(META_PATH, meta)
+    return {"status": "success", "message": "Query stored."}
+
+
+# -------------------------------
+# 4) Get Real Answers (CONTENT part)
+# -------------------------------
+@app.get("/get_real_answer")
+async def get_real_answer():
+    data = load_json(COPILOT_OUTPUT_PATH)
+
+    if "content" not in data:
+        return {"error": "content not found in copilot_output.json"}
+
+    result = format_final_answer(data["content"])
+    return {"answer": result}
+
+
+# -------------------------------
+# 5) Get Thinking (THINKING part)
+# -------------------------------
+@app.get("/get_thinking")
+async def get_thinking():
+    data = load_json(COPILOT_OUTPUT_PATH)
+
+    if "thinking" not in data:
+        return {"error": "thinking not found in copilot_output.json"}
+
+    result = format_thinking(data["thinking"])
+    return {"thinking": result}
+
+
+# -------------------------------
+# 6) Get Agent Reasoning Only
+# -------------------------------
+@app.get("/get_reasoning")
+async def get_reasoning():
+    data = load_json(COPILOT_OUTPUT_PATH)
+
+    if "thinking" not in data:
+        return {"error": "thinking not found in copilot_output.json"}
+
+    result = format_reasoning(data["thinking"])
+    return {"reasoning": result}
+
+
+---
+
+🧾 File 2: utils/csv_parser.py
+
+import csv
+from io import StringIO
+
+
+def parse_invoice_csv(text: str):
+    f = StringIO(text)
+    reader = csv.DictReader(f)
+    invoices = []
+
+    for row in reader:
+        invoices.append({
+            "invoice_id": row.get("invoice_id"),
+            "vendor": row.get("vendor"),
+            "amount": float(row.get("amount")),
+            "description": row.get("description"),
+            "has_approval_note": row.get("has_approval_note", "").lower(),
+            "date": row.get("date"),
+            "category": row.get("category")
+        })
+    return invoices
+
+
+def parse_ledger_csv(text: str):
+    f = StringIO(text)
+    reader = csv.DictReader(f)
+    ledgers = []
+
+    for row in reader:
+        ledgers.append({
+            "ledger_id": row.get("ledger_id"),
+            "vendor": row.get("vendor"),
+            "amount": float(row.get("amount")),
+            "description": row.get("description"),
+            "date": row.get("date"),
+            "category": row.get("category")
+        })
+    return ledgers
+
+
+---
+
+🧾 File 3: utils/json_loader.py
+
+import json
+import os
+
+
+def load_json(path: str):
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def write_json(path: str, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+---
+
+🧾 File 4: utils/answer_formatter.py
+
+These convert Copilot JSON into human-friendly output.
+
+👉 1. Final Answer (content)
+
+def format_final_answer(content: dict) -> str:
+    decision = content.get("decision", "")
+    reason = content.get("reason", "")
+    risk = content.get("risk_level", "")
+    what_next = content.get("what_can_be_done", "")
+    records = ", ".join(content.get("records_considered", []))
+
+    text = (
+        f"Decision: {decision}\n"
+        f"Risk Level: {risk}\n"
+        f"Reason: {reason}\n"
+        f"Records Considered: {records}\n"
+        f"What Can Be Done: {what_next}\n"
+    )
+    return text
+
+
+---
+
+👉 2. Thinking (full agent-by-agent JSON pretty)
+
+def format_thinking(thinking: dict) -> dict:
+    """
+    Returns thinking as-is but ensures nice formatting for UI.
+    """
+    formatted = {}
+    for agent, data in thinking.items():
+        formatted[agent] = {
+            "input": data.get("input", {}),
+            "reasoning": data.get("reasoning", ""),
+            "output": data.get("output", {})
+        }
+    return formatted
+
+
+---
+
+👉 3. Reasoning Only
+
+def format_reasoning(thinking: dict) -> dict:
+    """
+    Return only reasoning part for each agent.
+    """
+    return {agent: data.get("reasoning", "") for agent, data in thinking.items()}
+
+
+---
+
+🎯 WHAT HAPPENS NOW?
+
+✔ User uploads invoices → /upload_invoice
+
+→ stored into invoices.json
+
+✔ User uploads ledgers → /upload_ledger
+
+→ stored into ledgers.json
+
+✔ User types query → /set_query
+
+→ stored into integrator_meta.json
+
+✔ You run aurix_engine.py
+
+→ generates final_prompt.txt
+
+✔ You paste final_prompt.txt into Copilot
+
+→ copy Copilot JSON into data/copilot_output.json
+
+✔ UI calls integrator APIs:
+
+/get_real_answer     → returns only "content"
+/get_thinking        → returns agent-by-agent thinking
+/get_reasoning       → returns only reasoning
+
+
+---
+
+🎁 If you want next:
+
+✔ full frontend UI (React or simple HTML)
+
+✔ diagram of entire system
+
+✔ example Copilot output JSON
+
+✔ sample curl commands for testing
+
+✔ swagger UI autogen instructions
+
+Just tell me.
