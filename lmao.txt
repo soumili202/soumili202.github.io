@@ -1,0 +1,255 @@
+Perfect — we will remove /set_query and replace it with a single API:
+
+⭐ /submit_button
+
+When the user clicks "Submit" on the UI, this ONE API will:
+
+1. Accept the user query
+
+
+2. Write integrator_meta.json
+
+
+3. RUN aurix_engine.py automatically from within the API
+
+
+4. Generate final_prompt.txt
+
+
+5. Return a success response to UI
+
+
+6. User then copies final_prompt.txt → pastes into Copilot
+
+
+7. Later /get_real_answer, /get_thinking, /get_reasoning will read copilot_output.json
+
+
+
+This is EXACTLY what you described.
+
+
+---
+
+✅ Updated Integrator Behavior
+
+User flow now:
+
+1. Upload invoices → /upload_invoice
+
+
+2. Upload ledgers → /upload_ledger
+
+
+3. Enter query + click Submit → /submit_button
+
+
+4. This API:
+
+stores query
+
+calls aurix_engine.py
+
+finishes
+
+
+
+5. User copies final_prompt.txt into copilot
+
+
+6. Paste Copilot JSON into copilot_output.json manually
+
+
+7. Then:
+
+/get_real_answer
+
+/get_thinking
+
+/get_reasoning
+
+
+
+
+
+---
+
+🔥 NEW /submit_button API CODE
+
+Add this to main.py, replacing /set_query:
+
+import subprocess
+
+# -------------------------------
+# NEW: Submit Button (Set Query + Run AURIX Engine)
+# -------------------------------
+@app.post("/submit_button")
+async def submit_button(user_query: str = Form(...)):
+    # 1. Save query to integrator_meta.json
+    meta = {"user_query": user_query}
+    write_json(META_PATH, meta)
+
+    # 2. Run aurix_engine.py automatically
+    try:
+        subprocess.run(
+            ["python", "../ml_backend/aurix_engine.py"],  # adjust path if different
+            check=True
+        )
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Error running aurix_engine.py: {str(e)}"
+        }
+
+    return {
+        "status": "success",
+        "message": "Query stored and AURIX engine prompt generated successfully.",
+        "prompt_file": "final_prompt.txt is ready. Open it and copy/paste into Copilot."
+    }
+
+
+---
+
+⚠️ IMPORTANT — Path to aurix_engine.py
+
+If integrator folder structure is:
+
+project_root/
+  ml_backend/
+    aurix_engine.py
+  integrator_backend/
+    main.py
+
+Your call should be:
+
+subprocess.run(["python", "../ml_backend/aurix_engine.py"], check=True)
+
+If different, just adjust accordingly.
+
+
+---
+
+🧠 Full Updated Main.py (with /submit_button)
+
+from fastapi import FastAPI, UploadFile, File, Form
+import json, os, uvicorn, subprocess
+
+from utils.csv_parser import parse_invoice_csv, parse_ledger_csv
+from utils.json_loader import load_json, write_json
+from utils.answer_formatter import (
+    format_final_answer,
+    format_thinking,
+    format_reasoning_from_content
+)
+
+app = FastAPI(title="AURIX Integrator Backend")
+
+DATA_DIR = "data"
+INVOICE_PATH = os.path.join(DATA_DIR, "invoices.json")
+LEDGER_PATH = os.path.join(DATA_DIR, "ledgers.json")
+META_PATH = os.path.join(DATA_DIR, "integrator_meta.json")
+COPILOT_OUTPUT_PATH = os.path.join(DATA_DIR, "copilot_output.json")
+
+
+# -------------------------------
+# Upload Invoice
+# -------------------------------
+@app.post("/upload_invoice")
+async def upload_invoice(file: UploadFile = File(...)):
+    invoices = parse_invoice_csv((await file.read()).decode("utf-8"))
+    write_json(INVOICE_PATH, invoices)
+    return {"status": "success", "message": "Invoices uploaded."}
+
+
+# -------------------------------
+# Upload Ledger
+# -------------------------------
+@app.post("/upload_ledger")
+async def upload_ledger(file: UploadFile = File(...)):
+    ledgers = parse_ledger_csv((await file.read()).decode("utf-8"))
+    write_json(LEDGER_PATH, ledgers)
+    return {"status": "success", "message": "Ledgers uploaded."}
+
+
+# -------------------------------
+# NEW: Submit Button = store query + run Aurix Engine
+# -------------------------------
+@app.post("/submit_button")
+async def submit_button(user_query: str = Form(...)):
+
+    # 1) Store query
+    write_json(META_PATH, {"user_query": user_query})
+
+    # 2) Run aurix_engine.py
+    try:
+        subprocess.run(
+            ["python", "../ml_backend/aurix_engine.py"],  # adjust path if needed
+            check=True
+        )
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to run AURIX Engine: {e}"}
+
+    return {
+        "status": "success",
+        "message": "Query saved & AURIX final_prompt.txt successfully generated.",
+        "next_step": "Open final_prompt.txt → Paste into Copilot → Paste Copilot output into copilot_output.json"
+    }
+
+
+# -------------------------------
+# Output APIs
+# -------------------------------
+@app.get("/get_real_answer")
+async def get_real_answer():
+    return {"answer": format_final_answer(load_json(COPILOT_OUTPUT_PATH).get("content", {}))}
+
+
+@app.get("/get_thinking")
+async def get_thinking():
+    return {"thinking": format_thinking(load_json(COPILOT_OUTPUT_PATH).get("thinking", {}))}
+
+
+@app.get("/get_reasoning")
+async def get_reasoning():
+    return {"reasoning": format_reasoning_from_content(load_json(COPILOT_OUTPUT_PATH).get("content", {}))}
+
+
+# -------------------------------
+# Run on port 8000
+# -------------------------------
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+---
+
+🎯 Now UI Flow Becomes:
+
+1) Upload invoices → /upload_invoice
+
+2) Upload ledgers → /upload_ledger
+
+3) User enters query → clicks Submit
+
+→ /submit_button is called
+→ AURIX Engine runs → creates final_prompt.txt
+
+4) User copies prompt → pastes into Copilot
+
+5) Result pasted into copilot_output.json
+
+6) UI calls:
+
+/get_real_answer
+
+/get_thinking
+
+/get_reasoning
+
+
+Everything clean, end-to-end.
+
+
+---
+
+🔥 Want me to update AURIX engine so it logs progress for UI or writes an additional “status.json”?
