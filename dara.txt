@@ -1,0 +1,74 @@
+Got you.
+Here are the actual .csv files EXACTLY as they should be saved, with no formatting issues, no extra quotes — ready to directly upload in Postman or your UI.
+
+You can literally copy-paste each block into a file and save them as:
+
+invoices.csv
+
+ledgers.csv
+
+
+
+---
+
+📄 ➡️ invoices.csv (copy exactly this)
+
+invoice_id,vendor,amount,description,date,category,has_approval_note
+INV-1032,Apex Technologies Pvt Ltd,2450,Annual cloud service subscription renewal for production servers,2025-01-10,cloud_renewal,no
+INV-1040,Delta Infotech Solutions,1200,Software maintenance and licensing fees for internal tools,2025-01-05,software,yes
+INV-1088,Apex Technologies Pvt Ltd,5000,Hardware procurement for data center expansion,2025-01-02,hardware,no
+INV-1110,Orange Solutions Pvt Ltd,3200,Upgrade of CRM platform and analytics module,2025-01-08,software,yes
+INV-1150,Apex Technologies Pvt Ltd,1800,Cloud backup and data archiving subscription,2025-01-12,cloud_renewal,no
+
+Save as:
+➡️ invoices.csv
+
+
+---
+
+📄 ➡️ ledgers.csv (copy exactly this)
+
+ledger_id,vendor,amount,description,date,category
+LEDG-231,Apex Tech Private Limited,2435,Cloud infrastructure annual subscription (IT Operations),2025-01-10,cloud
+LEDG-277,Delta Infotech Solutions,1200,Software maintenance reconciliation entry,2025-01-05,software
+LEDG-310,Apex Technologies Pvt Ltd,5000,Hardware procurement cost entry,2025-01-02,hardware
+LEDG-350,Orange Solutions Private Limited,3200,CRM platform upgrade and custom development,2025-01-08,software
+LEDG-399,Apex Technologies Pvt Ltd,1850,Cloud backup expense entry for archival systems,2025-01-12,cloud
+
+Save as:
+➡️ ledgers.csv
+
+
+---
+
+🎉 These CSVs guarantee:
+
+Retrieval agent can test lexical + semantic similarity
+
+Vendor mismatch resolution
+
+Amount comparison logic
+
+Policy violations
+
+Reconciliation agent behavior
+
+Compliance scoring
+
+Explainer final decision
+
+
+Fully compatible with your integrator parser and AURIX engine.
+
+
+---
+
+If you want, I can also give:
+
+✔ vendor_mapping.csv
+
+✔ a complex version of CSV with more rows
+
+✔ expected Copilot output for this exact data
+
+Just tell me.
